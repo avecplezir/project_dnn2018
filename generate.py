@@ -95,7 +95,7 @@ def process_inputs(ins):
     ins = [np.array(i) for i in ins]
     return ins
 
-def generate(models, num_bars, Attention = False, cuda=False):
+def generate(models, num_bars, Attention = False):
     print('Generating with no styles:')
 
     models.train(False) 
@@ -109,7 +109,7 @@ def generate(models, num_bars, Attention = False, cuda=False):
         g = generations[0]
         
         if cuda:      
-            ins = Variable(torch.FloatTensor(ins).cuda())
+            ins = Variable(torch.FloatTensor(ins)).cuda()
         else:
             ins = Variable(torch.FloatTensor(ins))
             
@@ -119,11 +119,10 @@ def generate(models, num_bars, Attention = False, cuda=False):
         note_features = note_features[:, -1:, :]
 #         print('note_features', note_features.shape)
 
-        # Generate each note conditioned on previous
-        
+        # Generate each note conditioned on previous       
         for n in range(NUM_NOTES):
             if cuda:      
-                current_note = Variable(torch.FloatTensor([[g.next_note]]).cuda())
+                current_note = Variable(torch.FloatTensor([[g.next_note]])).cuda()
             else:
                 current_note = Variable(torch.FloatTensor([[g.next_note]]))
              
