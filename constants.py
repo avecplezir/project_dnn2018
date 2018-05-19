@@ -48,7 +48,7 @@ NOTES_PER_BAR = NOTES_PER_BEAT * BEATS_PER_BAR
 
 # Training parameters
 BATCH_SIZE = 32
-SEQ_LEN = 8 * NOTES_PER_BAR
+SEQ_LEN = 4 * NOTES_PER_BAR
 
 # Hyper Parameters
 OCTAVE_UNITS = 64
