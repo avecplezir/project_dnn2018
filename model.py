@@ -63,17 +63,15 @@ class time_axis(nn.Module):
             (batch, time_seq, note_seq, hidden_features)
             
         """
+        initial_shape = notes.shape
         
-        lstm_out = []        
-        for i in range(notes.shape[2]):
+        notes = notes.permute(0, 2, 1, 3).contiguous()
+        notes = notes.view((-1,)+ notes.shape[-2:]).contiguous()
             
-            out, hidden = self.time_lstm(notes[:, :, i,:]) 
-            
-            lstm_out.append(out[:, :, None, :])
-
-        
-        
-        time_output = torch.cat(lstm_out, dim=2)
+        out, hidden = self.time_lstm(notes) 
+                
+        time_output = out.contiguous().view((initial_shape[0],) + (initial_shape[2],) + out.shape[-2:])
+        time_output = time_output.permute(0, 2, 1, 3)
 #         self.dropout(time_output)
         
         return time_output        
@@ -108,18 +106,18 @@ class note_axis(nn.Module):
         # Shift target one note to the left.
         shift_chosen = nn.ZeroPad2d((0, 0, 1, 0))(chosen[:, :, :-1, :])            
         note_input = torch.cat([notes, shift_chosen], dim=-1)
-
         
-        lstm_out = []
-        for i in range(notes.shape[1]):
-            
-            out, hidden = self.note_lstm(note_input[:, i, :,:]) 
-            lstm_out.append(out[:, None, :, :])
-              
-        time_output = torch.cat(lstm_out, dim=1)
-#         self.dropout(time_output)
+        initial_shape = note_input.shape
+        
+        note_input = note_input.contiguous().view((-1,)+ note_input.shape[-2:]).contiguous()
+        
+        out, hidden = self.note_lstm(note_input) 
+        
+        note_output = out.contiguous().view(initial_shape[:2] + out.shape[-2:])
 
-        logits = self.logits(time_output) 
+#         self.dropout(note_output)
+
+        logits = self.logits(note_output) 
         next_notes = nn.Sigmoid()(logits)
         
         return next_notes 
@@ -140,8 +138,6 @@ class Generator(nn.Module):
     
 def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
     
-    n_epochs = 3
-    batchsize = 3
     optimizer = optim.Adam(generator.parameters())
     n_train_batches = math.ceil(len(X_tr)/batchsize)
     n_validation_batches = math.ceil(len(X_te)/batchsize)
