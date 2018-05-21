@@ -17,8 +17,8 @@ styles = [
 #=============================
 #self attention - number of heads, projection dim
 cuda = True
-PROJECTION_DIM = 64
-N_HEADS = 4
+PROJECTION_DIM = 39
+N_HEADS = 2
 DENSE_SIZE = PROJECTION_DIM*N_HEADS
 
 #=============================

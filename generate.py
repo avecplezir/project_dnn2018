@@ -127,7 +127,7 @@ def generate(models, num_bars, Attention = False):
                 current_note = Variable(torch.FloatTensor([[g.next_note]]))
              
 #             print('current_note', current_note.shape)
-            predictions = note_model(note_features, current_note)
+            predictions = note_model(note_features, current_note, to_train=True)
 #             print('predictions', predictions.shape)
 
             predictions = predictions.cpu().data.numpy()
