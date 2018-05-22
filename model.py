@@ -270,6 +270,18 @@ class MultiHeadedAttention(nn.Module):
         return self.linear(x)
     #+initial_x
     
+class PositionwiseFeedForward(nn.Module):
+    "Implements FFN equation."
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super(PositionwiseFeedForward, self).__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        return self.w_2(self.dropout(F.relu(self.w_1(x))))
+    
+    
 class Generator(nn.Module):
     def __init__(self, dropout=0.5):
         super(self.__class__, self).__init__()        
@@ -312,7 +324,8 @@ def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
 
             optimizer.step()
 
-            train_loss += loss.cpu().data.numpy()[0]
+#             print(loss.cpu().data.numpy())
+            train_loss += loss.cpu().data.numpy()
 
         train_loss /= n_train_batches
         epoch_history['train_loss'].append(train_loss)
@@ -324,7 +337,7 @@ def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
             pred = generator(X, y)
             loss = compute_loss(pred, y) 
 
-            val_loss += loss.cpu().data.numpy()[0]
+            val_loss += loss.cpu().data.numpy()
 
         val_loss /= n_validation_batches
         epoch_history['val_loss'].append(val_loss)
