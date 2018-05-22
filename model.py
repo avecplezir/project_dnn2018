@@ -35,7 +35,6 @@ def compute_loss(y_pred, y_true):
 
 def iterate_minibatches(train_data, train_labels, batchsize):
     indices = np.random.permutation(np.arange(len(train_labels)))
-#     indices = np.arange(len(train_labels))
     for start in range(0, len(indices), batchsize):
         ix = indices[start: start + batchsize]
         
@@ -45,7 +44,49 @@ def iterate_minibatches(train_data, train_labels, batchsize):
             yield Variable(torch.FloatTensor(train_data[ix])), Variable(torch.FloatTensor(train_labels[ix]))
 
 # def note2batch(notes):
+def pitch_pos_in_f(x):
+    """
+    Returns a constant containing pitch position of each note
+    """
+#     print('x', x.shape[:-2])
+    pos_in = torch.FloatTensor(np.arange(NUM_NOTES)/NUM_NOTES)
+#     print(pos_in.shape)
+    pos_in = pos_in.repeat(x.shape[:-2]+(1,))[:,:,:,None]
+#     print(pos_in.shape)
+    
+    return get_variable(pos_in)
 
+def pitch_class_in_f(x):
+    """
+    Returns a constant containing pitch class of each note
+    """
+
+    pitch_class_matrix = np.array([one_hot(n % OCTAVE, OCTAVE) for n in range(NUM_NOTES)])
+    pitch_class_matrix = torch.FloatTensor(pitch_class_matrix)
+    pitch_class_matrix = pitch_class_matrix.view(1, 1, NUM_NOTES, OCTAVE)
+    pitch_class_matrix = pitch_class_matrix.repeat((x.shape[:2]+ (1, 1)))
+#     print('pitch_class_matrix', pitch_class_matrix.shape)
+    
+    return get_variable(pitch_class_matrix)
+
+def pitch_bins_f(x):
+
+        bins = [x[:, :, i::OCTAVE, :1].sum(2) for i in range(OCTAVE)]
+#         print(bins[0].shape)
+        bins = torch.cat(bins, dim = -1)
+#         print(bins.shape)
+        bins = bins.repeat(NUM_OCTAVES, 1, 1)
+#         print(bins.shape)
+        bins = bins.view(x.shape[:2]+(NUM_NOTES, 1))
+#         print(bins.shape)
+        
+        return bins
+
+def get_variable(x):
+    if cuda:      
+        return  Variable(x.cuda(), requires_grad=False)
+    else:
+        return Variable(x, requires_grad=False)
 
     
     
@@ -57,14 +98,9 @@ class time_axis(nn.Module):
         self.hidden_size = TIME_AXIS_UNITS
         
         self.attention_layer = MultiHeadedAttention()
-        self.self_attention = True
-        
-        self.note_features = True
-        
-#         if self.self_attention:
-#             self.input_size = 256#PROJECTION_DIM*N_HEADS
-#         else:
-        self.input_size = 78 #64#78
+        self.self_attention = SELF_ATTENTION
+
+        self.input_size = D_MODEL 
          
         self.padding = nn.ZeroPad2d(((2 * OCTAVE - 1)//2,  math.ceil((2 * OCTAVE - 1)/2), 0, 0))
         self.conv = nn.Conv1d(NOTE_UNITS,  OCTAVE_UNITS, 2 * OCTAVE)
@@ -113,9 +149,9 @@ class time_axis(nn.Module):
         if self.self_attention:
             notes = notes.contiguous().view((-1,)+ notes.shape[-2:]).contiguous()
             notes = self.attention_layer(notes, notes, notes)
-            notes = notes.contiguous().view(initial_shape[:2] + notes.shape[-2:])
+            notes = notes.contiguous().view(initial_shape[:2] + notes.shape[-2:])       
         
-        notes = notes+note_features
+        #notes = notes + note_features
         
         initial_shape = notes.shape
         
@@ -194,24 +230,27 @@ def attention(query, key, value):
              / math.sqrt(d_k)
     p_attn = F.softmax(scores, dim = -1)
 
-    return torch.matmul(p_attn, value), p_attn
+    query_new = torch.matmul(p_attn, value)
+    
+    return query_new*query, p_attn
     
 class MultiHeadedAttention(nn.Module):
     def __init__(self, dropout=0.1):
         super(MultiHeadedAttention, self).__init__()
         
-        self.d_model = 78 #3#78 #OCTAVE_UNITS
-        self.h = 3 #N_HEADS
-        self.d_k = 26 #78//3#PROJECTION_DIM
+        self.d_model = D_MODEL
+        self.h = N_HEADS
+        self.d_k = PROJECTION_DIM
         
-        self.linears = clones(nn.Linear(self.d_model, self.d_k*self.h), 3)
+        self.linears = clones(nn.Linear(self.d_model, self.d_k*self.h,  bias=False), 3)
 #         self.linear = nn.Linear(self.d_k*self.h, self.d_k*self.h)
-        self.linear = nn.Linear(self.d_k*self.h, self.d_k*self.h)
+        self.linear = nn.Linear(self.d_k*self.h, self.d_k*self.h,  bias=False)
         self.attn = None
         self.dropout = nn.Dropout(p=dropout)
         
     def forward(self, query, key, value):
 
+        initial_x = query
         nbatches = query.size(0)
         
         # 1) Do all the linear projections in batch from d_model => h x d_k 
@@ -229,6 +268,7 @@ class MultiHeadedAttention(nn.Module):
 #         print('x', x.shape)
             
         return self.linear(x)
+    #+initial_x
     
 class Generator(nn.Module):
     def __init__(self, dropout=0.5):
