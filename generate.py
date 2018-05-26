@@ -43,11 +43,14 @@ class MusicGeneration:
             np.array(note_features),
             np.array([self.next_note]),
         )
+    
+    def add_notes(self, notes):
+        self.next_note = notes
 
     def choose(self, prob, n):
         vol = prob[n, -1]
         prob = apply_temperature(prob[n, :-1], self.temperature)
-
+        
         # Flip notes randomly
         if np.random.random() <= prob[0]:
             self.next_note[n, 0] = 1
@@ -95,17 +98,27 @@ def process_inputs(ins):
     ins = [np.array(i) for i in ins]
     return ins
 
-def generate(models, num_bars, Attention = False):
+def sample_sound_np(data_gen):
+    size = data_gen.shape
+    rand = np.random.rand(*size)
+    sample = (rand<data_gen).astype(int)
+    sample[:,2] = sample[:,0]
+    return sample
+
+def generate(models, num_bars, Attention = False, to_train=False):
     print('Generating with no styles:')
 
     models.train(False) 
     time_model, note_model = models.time_ax, models.note_ax
+    note_model.to_train = to_train
+    if not to_train:
+        note_model.apply_T = True
+    
     generations = [MusicGeneration()]
 
     for t in tqdm(range(NOTES_PER_BAR * num_bars)):
         # Produce note-invariant features
         ins = process_inputs([g.build_time_inputs() for g in generations])[0]
-#         print('ins', ins.shape)
         g = generations[0]
         
         if cuda:      
@@ -115,26 +128,31 @@ def generate(models, num_bars, Attention = False):
             
         # Pick only the last time step
         note_features = time_model(ins)
-#         print('note_features', note_features.shape)
         note_features = note_features[:, -1:, :]
-#         print('note_features', note_features.shape)
 
-        # Generate each note conditioned on previous       
-        for n in range(NUM_NOTES):
-            if cuda:      
-                current_note = Variable(torch.FloatTensor([[g.next_note]])).cuda()
-            else:
-                current_note = Variable(torch.FloatTensor([[g.next_note]]))
-             
-#             print('current_note', current_note.shape)
-            predictions = note_model(note_features, current_note, to_train=True)
-#             print('predictions', predictions.shape)
+        # Generate each note conditioned on previous
+        if to_train:
+            for n in range(NUM_NOTES):
+                if cuda:      
+                    current_note = Variable(torch.FloatTensor([[g.next_note]])).cuda()
+                else:
+                    current_note = Variable(torch.FloatTensor([[g.next_note]]))
 
-            predictions = predictions.cpu().data.numpy()
-            for i, g in enumerate(generations):
-                # Remove the temporal dimension
-                g.choose(predictions[i][-1], n)
+    #             print('current_note', current_note.shape)
+                predictions, _ = note_model(note_features, current_note)
+                predictions = predictions.cpu().data.numpy()
 
+                
+                for i, g in enumerate(generations):
+                    # Remove the temporal dimension
+                    g.choose(predictions[i][-1], n)
+        else:           
+            predictions, _ = note_model(note_features, None)
+            proba = predictions.cpu().data.numpy()[0][0]
+#             proba = apply_temperature(proba, g.temperature)
+            sample = sample_sound_np(proba)
+            g.add_notes(sample)
+            
         # Move one time step
         yield [g.end_time(t) for g in generations]
 
@@ -151,15 +169,3 @@ def write_file(name, results):
         mf = midi_encode(unclamp_midi(result))
         midi.write_midifile(fpath, mf)
 
-
-def main():
-    parser = argparse.ArgumentParser(description='Generates music.')
-    parser.add_argument('--bars', default=4, type=int, help='Number of bars to generate')
-    args = parser.parse_args()
-
-    models = build_or_load()
-
-    write_file('output', generate(models, args.bars))
-
-if __name__ == '__main__':
-    main()

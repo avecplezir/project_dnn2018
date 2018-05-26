@@ -18,9 +18,9 @@ styles = [
 #self attention - number of heads, projection dim
 cuda = True
 
-SELF_ATTENTION = False
-PROJECTION_DIM = 26
-N_HEADS = 3
+SELF_ATTENTION = True
+PROJECTION_DIM = 39
+N_HEADS = 2
 D_MODEL = 78
 
 #=============================

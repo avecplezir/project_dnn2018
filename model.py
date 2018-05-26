@@ -43,16 +43,12 @@ def iterate_minibatches(train_data, train_labels, batchsize):
         else:
             yield Variable(torch.FloatTensor(train_data[ix])), Variable(torch.FloatTensor(train_labels[ix]))
 
-# def note2batch(notes):
 def pitch_pos_in_f(x):
     """
     Returns a constant containing pitch position of each note
     """
-#     print('x', x.shape[:-2])
     pos_in = torch.FloatTensor(np.arange(NUM_NOTES)/NUM_NOTES)
-#     print(pos_in.shape)
     pos_in = pos_in.repeat(x.shape[:-2]+(1,))[:,:,:,None]
-#     print(pos_in.shape)
     
     return get_variable(pos_in)
 
@@ -65,20 +61,15 @@ def pitch_class_in_f(x):
     pitch_class_matrix = torch.FloatTensor(pitch_class_matrix)
     pitch_class_matrix = pitch_class_matrix.view(1, 1, NUM_NOTES, OCTAVE)
     pitch_class_matrix = pitch_class_matrix.repeat((x.shape[:2]+ (1, 1)))
-#     print('pitch_class_matrix', pitch_class_matrix.shape)
     
     return get_variable(pitch_class_matrix)
 
 def pitch_bins_f(x):
 
         bins = [x[:, :, i::OCTAVE, :1].sum(2) for i in range(OCTAVE)]
-#         print(bins[0].shape)
         bins = torch.cat(bins, dim = -1)
-#         print(bins.shape)
         bins = bins.repeat(NUM_OCTAVES, 1, 1)
-#         print(bins.shape)
         bins = bins.view(x.shape[:2]+(NUM_NOTES, 1))
-#         print(bins.shape)
         
         return bins
 
@@ -88,9 +79,6 @@ def get_variable(x):
     else:
         return Variable(x, requires_grad=False)
 
-    
-    
-    
 class time_axis(nn.Module):
     def __init__(self):
         super(self.__class__, self).__init__() 
@@ -98,6 +86,7 @@ class time_axis(nn.Module):
         self.hidden_size = TIME_AXIS_UNITS
         
         self.attention_layer = MultiHeadedAttention()
+        self.FF = PositionwiseFeedForward(D_MODEL, 4*D_MODEL)
         self.self_attention = SELF_ATTENTION
 
         self.input_size = D_MODEL 
@@ -136,29 +125,25 @@ class time_axis(nn.Module):
         bins = pitch_bins_f(notes)
         
         note_features = torch.cat([notes, pos_in, class_in, bins], dim = -1)
-#         note_features = torch.cat([notes, pos_in, class_in, bins], dim = -1)
-#         print(note_features.shape)
         notes = note_features
-#         print(notes.shape)
-
-        
+    
         initial_shape = notes.shape
         
-#         self.dropout(notes)
-        
         if self.self_attention:
+            # multihead attention
             notes = notes.contiguous().view((-1,)+ notes.shape[-2:]).contiguous()
             notes = self.attention_layer(notes, notes, notes)
             notes = notes.contiguous().view(initial_shape[:2] + notes.shape[-2:])       
-        
-        #notes = notes + note_features
+            notes = notes + note_features
+            # FF
+            note_features = self.FF(notes)
+            notes = notes + note_features
+
         
         initial_shape = notes.shape
         
         notes = notes.permute(0, 2, 1, 3).contiguous()
         notes = notes.view((-1,)+ notes.shape[-2:]).contiguous()
-        
-#         print(notes.shape)
 
         out, hidden = self.time_lstm(notes) 
                 
@@ -167,9 +152,24 @@ class time_axis(nn.Module):
         
         return time_output        
     
+def sample_sound2(data_gen):
+    size = data_gen.size()
+    rand = torch.rand(*size).cuda()
+    sample = (rand<data_gen).type(torch.FloatTensor).cuda()
+    sample[:,:,2] = 1
+    return sample
+
+def sample_sound(data_gen):
+    size = data_gen.size()
+    rand = torch.rand(*size).cuda()
+    sample = (rand<data_gen).type(torch.FloatTensor).cuda()
+    sample[:,:,:,2] = 1
+    return sample
+
 class note_axis(nn.Module):
     def __init__(self):
         super(self.__class__, self).__init__()   
+        
         
         self.n_layers = NOTE_AXIS_LAYERS
         self.hidden_size = NOTE_AXIS_UNITS
@@ -182,8 +182,13 @@ class note_axis(nn.Module):
         self.dropout = nn.Dropout(p=0.2, inplace=True)
         
         self.logits = nn.Linear(self.hidden_size, NOTE_UNITS) 
+        self.to_train = True
         
-    def forward(self, notes, chosen, to_train):
+        self.apply_T = False
+        self.temperature = 1
+        self.silent_time = 0
+        
+    def forward(self, notes, chosen):
         """
         arg:
             notes - (batch, time_seq, note_seq, time_hidden_features)
@@ -192,32 +197,70 @@ class note_axis(nn.Module):
             (batch, time_seq, note_seq, next_notes_features)
             
         """
-                
-        # Shift target one note to the left.
-        shift_chosen = nn.ZeroPad2d((0, 0, 1, 0))(chosen[:, :, :-1, :]) 
-#         print('shift_chosen', shift_chosen.shape)
-#         print('shift_chosen', shift_chosen[0,0,:,0])
-        note_input = torch.cat([notes, shift_chosen], dim=-1)
-#         note_input = notes
+    
+        if self.to_train:
+            # Shift target one note to the left.
+            shift_chosen = nn.ZeroPad2d((0, 0, 1, 0))(chosen[:, :, :-1, :]) 
+            notes = torch.cat([notes, shift_chosen], dim=-1)
+
         
-        initial_shape = note_input.shape
+        initial_shape = notes.shape    
+        note_input = notes.contiguous().view((-1,)+ notes.shape[-2:]).contiguous()
         
-        note_input = note_input.contiguous().view((-1,)+ note_input.shape[-2:]).contiguous()
-        
-        if to_train:
+        if self.to_train:
             out, hidden = self.note_lstm(note_input) 
+            note_output = out.contiguous().view(initial_shape[:2] + out.shape[-2:])
+            logits = self.logits(note_output) 
+            next_notes = nn.Sigmoid()(logits)      
+            return next_notes, sample_sound(next_notes)
+        
         else:
-            pass
+            hidden = (torch.zeros(self.n_layers, note_input.shape[0], self.hidden_size).cuda(), 
+                      torch.zeros(self.n_layers, note_input.shape[0], self.hidden_size).cuda()) 
+            notes_list = []
+            sound_list = []
+            sound = torch.zeros(note_input[:,0:1,:].shape[:-1]+(NOTE_UNITS,)).cuda()
+            for i in range(NUM_OCTAVES*OCTAVE):
+#                 print('sound', sound.shape)
+#                 print('note_input[:,i:i+1,:]', note_input[:,i:i+1,:].shape)
+                inputs = torch.cat([note_input[:,i:i+1,:], sound], dim = -1)
+#                 print('inputs', inputs.shape)
+                out, hidden = self.note_lstm(inputs, hidden) 
+                logits = self.logits(out) 
+                if self.apply_T:
+                    next_notes = nn.Sigmoid()(logits/self.temperature)
+                else:
+                    next_notes = nn.Sigmoid()(logits)
+                    
+                sound = sample_sound2(next_notes)
+                notes_list.append(next_notes)
+                sound_list.append(sound)
+                
+#                 if self.apply_T:             
+#                     if  ((sounds[-1,-1,:,0] != 0).sum() == 0):
+#                         self.silent_time += 1
+#                         if self.silent_time >= NOTES_PER_BAR:
+#                             self.temperature += 0.1
+#                     else:
+#                         self.silent_time = 0
+#                         self.temperature = 1
+                
+            out = torch.cat(notes_list, dim = 1)
+            sounds = torch.cat(sound_list, dim = 1)
+            note_output = out.contiguous().view(initial_shape[:2] + out.shape[-2:])
+            sounds = sounds.contiguous().view(initial_shape[:2] + out.shape[-2:])
             
-        
-        note_output = out.contiguous().view(initial_shape[:2] + out.shape[-2:])
-
-#         self.dropout(note_output)
-
-        logits = self.logits(note_output) 
-        next_notes = nn.Sigmoid()(logits)
-        
-        return next_notes 
+            if self.apply_T:
+                
+                if  ((sounds[-1,-1,:,0] != 0).sum() == 0):
+                    self.silent_time += 1
+                    if self.silent_time >= NOTES_PER_BAR:
+                        self.temperature += 0.1*10
+                else:
+                    self.silent_time = 0
+                    self.temperature = 1
+            
+            return note_output, sounds
     
 def clones(module, N):
     "Produce N identical layers."
@@ -243,7 +286,6 @@ class MultiHeadedAttention(nn.Module):
         self.d_k = PROJECTION_DIM
         
         self.linears = clones(nn.Linear(self.d_model, self.d_k*self.h,  bias=False), 3)
-#         self.linear = nn.Linear(self.d_k*self.h, self.d_k*self.h)
         self.linear = nn.Linear(self.d_k*self.h, self.d_k*self.h,  bias=False)
         self.attn = None
         self.dropout = nn.Dropout(p=dropout)
@@ -265,8 +307,6 @@ class MultiHeadedAttention(nn.Module):
         x = x.transpose(1, 2).contiguous() \
              .view(nbatches, -1, self.h * self.d_k)
             
-#         print('x', x.shape)
-            
         return self.linear(x)
     #+initial_x
     
@@ -283,23 +323,24 @@ class PositionwiseFeedForward(nn.Module):
     
     
 class Generator(nn.Module):
-    def __init__(self, dropout=0.5):
+    def __init__(self, dropout=0.3):
         super(self.__class__, self).__init__()        
         
         self.dropout = nn.Dropout(p=dropout)
         self.time_ax = time_axis() 
         self.note_ax = note_axis()
         
-    def forward(self, notes, chosen, to_train=True):
+    def forward(self, notes, chosen):
         
         notes = self.dropout(notes)
         chosen = self.dropout(chosen)
         
         note_ax_output = self.time_ax(notes)
-        output = self.note_ax(note_ax_output, chosen, to_train)
+        output = self.note_ax(note_ax_output, chosen)
         
-        return output   
+        return output 
     
+
 def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
     
     optimizer = optim.Adam(generator.parameters())
@@ -316,32 +357,30 @@ def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
         generator.train(True)    
         for X, y in tqdm(iterate_minibatches(X_tr, y_tr, batchsize)):
 
+            
+
+            pred, sound = generator(X, y)
+            loss = compute_loss(pred, y) 
+            
             optimizer.zero_grad()
-
-            pred = generator(X, y)
-            loss = compute_loss(pred, y)        
             loss.backward()
-
             optimizer.step()
-
-#             print(loss.cpu().data.numpy())
+            
             train_loss += loss.cpu().data.numpy()
 
         train_loss /= n_train_batches
         epoch_history['train_loss'].append(train_loss)
-    #     print('train_loss', train_loss)
 
         generator.train(False)
         val_loss = 0
         for X, y in tqdm(iterate_minibatches(X_te, y_te, batchsize)):
-            pred = generator(X, y)
+            pred, sound = generator(X, y)
             loss = compute_loss(pred, y) 
 
             val_loss += loss.cpu().data.numpy()
 
         val_loss /= n_validation_batches
         epoch_history['val_loss'].append(val_loss)
-    #     print('val_loss', val_loss)
 
         # Visualize
         display.clear_output(wait=True)
