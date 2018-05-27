@@ -109,7 +109,7 @@ def generate(models, num_bars, Attention = False, to_train=False):
     print('Generating with no styles:')
 
 #     models.train(False) 
-    time_model, note_model = models.time_ax, models.note_ax
+    time_model, note_model, track_feature_model = models.time_ax, models.note_ax, models.overall_information
     note_model.to_train = to_train
     if not to_train:
         note_model.apply_T = True
@@ -131,6 +131,8 @@ def generate(models, num_bars, Attention = False, to_train=False):
         # Pick only the last time step
         note_features = time_model(ins)
         note_features = note_features[:, -1:, :]
+        
+        track_features = track_feature_model(ins)
 
         # Generate each note conditioned on previous
         if to_train:
@@ -141,7 +143,7 @@ def generate(models, num_bars, Attention = False, to_train=False):
                     current_note = Variable(torch.FloatTensor([[g.next_note]]))
 
     #             print('current_note', current_note.shape)
-                predictions, _ = note_model(note_features, current_note)
+                predictions, _ = note_model(note_features, current_note, track_features)
                 predictions = predictions.cpu().data.numpy()
 
                 
@@ -149,7 +151,7 @@ def generate(models, num_bars, Attention = False, to_train=False):
                     # Remove the temporal dimension
                     g.choose(predictions[i][-1], n)
         else:           
-            predictions, sample = note_model(note_features, None)
+            predictions, sample = note_model(note_features, None, track_features)
 #             print(sample.shape)
             proba = predictions.cpu().data.numpy()[0][0]
             proba = apply_temperature(proba, g.temperature)

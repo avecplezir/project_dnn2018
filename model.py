@@ -194,14 +194,14 @@ class note_axis(nn.Module):
         
         self.dropout = nn.Dropout(p=0.2, inplace=True)
         
-        self.logits = nn.Linear(self.hidden_size, NOTE_UNITS) 
+        self.logits = nn.Linear(self.hidden_size+NUM_TRACK_FEATURE, NOTE_UNITS) 
         self.to_train = True
         
         self.apply_T = False
         self.temperature = 1
         self.silent_time = 0
         
-    def forward(self, notes, chosen):
+    def forward(self, notes, chosen, overall_info):
         """
         arg:
             notes - (batch, time_seq, note_seq, time_hidden_features)
@@ -223,6 +223,11 @@ class note_axis(nn.Module):
         if self.to_train:
             out, hidden = self.note_lstm(note_input) 
             note_output = out.contiguous().view(initial_shape[:2] + out.shape[-2:])
+            info = overall_info.expand((note_output.shape[1:3]+overall_info.shape)).permute(2,0,1,3).contiguous()
+#             print(info.shape)
+#             print('info', info[0,0,0,:])
+#             print('info2', info[0,5,3,:])
+            note_output = torch.cat([note_output, info], dim =-1)
             logits = self.logits(note_output) 
             next_notes = nn.Sigmoid()(logits)      
             return next_notes, sample_sound(next_notes)
@@ -409,6 +414,21 @@ class PositionwiseFeedForward(nn.Module):
     def forward(self, x):
         return self.w_2(self.dropout(F.relu(self.w_1(x))))
     
+class track_feature(nn.Module):
+    def __init__(self, dropout=0.3):
+        super(self.__class__, self).__init__()        
+        
+        self.overall_information = nn.Conv2d(3, 10, (32, 48), padding=0, stride=16)
+        self.l = nn.Linear(10*7, NUM_TRACK_FEATURE)
+        
+    def forward(self, notes):
+              
+        overall_info = notes.permute(0, 3, 1, 2).contiguous()
+        overall_info = self.overall_information(overall_info)
+#         print('overall_info', overall_info.shape)
+        overall_info = self.l(overall_info.view((overall_info.shape[0],-1)))
+        
+        return overall_info     
     
 class Generator(nn.Module):
     def __init__(self, dropout=0.3):
@@ -417,15 +437,23 @@ class Generator(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         self.time_ax = time_axis() 
         self.note_ax = note_axis()
+        #in_ch, out_ch, kernel
+        self.overall_information = track_feature()
         
     def forward(self, notes, chosen = None):
         
+#         notes[:,:,:,2] = notes[:,:,:,0]
         notes = self.dropout(notes)
-        if self.note_ax.to_train == True:
-            chosen = self.dropout(chosen)
         
+        if self.note_ax.to_train == True:
+#             chosen[:,:,:,2] = chosen[:,:,:,0]
+            chosen = self.dropout(chosen)
+
+        overall_info = self.overall_information(notes)
+                                                              
         note_ax_output = self.time_ax(notes)
-        output = self.note_ax(note_ax_output, chosen)
+        output = self.note_ax(note_ax_output, chosen, overall_info)
+                                                              
         
         return output 
     
@@ -445,8 +473,6 @@ def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
         train_loss = 0
         generator.train(True)    
         for X, y in tqdm(iterate_minibatches(X_tr, y_tr, batchsize)):
-
-            
 
             pred, sound = generator(X, y)
             loss = compute_loss(pred, y) 

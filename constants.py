@@ -22,6 +22,7 @@ SELF_ATTENTION = True
 PROJECTION_DIM = 78
 N_HEADS = 3
 D_MODEL = 78
+NUM_TRACK_FEATURE = 10
 
 #=============================
 
