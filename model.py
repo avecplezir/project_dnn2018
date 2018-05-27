@@ -347,7 +347,7 @@ class Generator(nn.Module):
     def forward(self, notes, chosen = None):
         
         notes = self.dropout(notes)
-        if generator.note_ax.to_train == True:
+        if self.note_ax.to_train == True:
             chosen = self.dropout(chosen)
         
         note_ax_output = self.time_ax(notes)
