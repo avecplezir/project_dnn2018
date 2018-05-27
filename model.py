@@ -418,10 +418,11 @@ class Generator(nn.Module):
         self.time_ax = time_axis() 
         self.note_ax = note_axis()
         
-    def forward(self, notes, chosen):
+    def forward(self, notes, chosen = None):
         
         notes = self.dropout(notes)
-        chosen = self.dropout(chosen)
+        if self.note_ax.to_train == True:
+            chosen = self.dropout(chosen)
         
         note_ax_output = self.time_ax(notes)
         output = self.note_ax(note_ax_output, chosen)
