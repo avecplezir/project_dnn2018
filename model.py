@@ -72,6 +72,32 @@ def pitch_bins_f(x):
         bins = bins.view(x.shape[:2]+(NUM_NOTES, 1))
         
         return bins
+    
+class feature_generation(nn.Module):
+    def __init__(self):
+        super(self.__class__, self).__init__()        
+        self.padding = nn.ZeroPad2d(((2 * OCTAVE - 1)//2,  math.ceil((2 * OCTAVE - 1)/2), 0, 0))
+        self.conv = nn.Conv1d(NOTE_UNITS,  OCTAVE_UNITS, 2 * OCTAVE)
+        
+    def forward(self, notes):
+        initial_shape = notes.shape
+        
+        # convolution
+        notes = notes.contiguous().view((-1,)+ notes.shape[-2:]).contiguous()
+        notes = notes.permute(0, 2, 1).contiguous()
+        notes = self.padding(notes)
+        notes = self.conv(notes)
+        notes = nn.Tanh()(notes)
+        notes = notes.permute(0, 2, 1).contiguous()
+        notes = notes.contiguous().view(initial_shape[:2] + notes.shape[-2:])
+        
+        pos_in = pitch_pos_in_f(notes)
+        class_in = pitch_class_in_f(notes)
+        bins = pitch_bins_f(notes)
+        
+        note_features = torch.cat([notes, pos_in, class_in, bins], dim = -1)
+    
+        return note_features
 
 def get_variable(x):
     if cuda:      
@@ -90,13 +116,11 @@ class time_axis(nn.Module):
         self.self_attention = SELF_ATTENTION
 
         self.input_size = D_MODEL 
-         
-        self.padding = nn.ZeroPad2d(((2 * OCTAVE - 1)//2,  math.ceil((2 * OCTAVE - 1)/2), 0, 0))
-        self.conv = nn.Conv1d(NOTE_UNITS,  OCTAVE_UNITS, 2 * OCTAVE)
 
         self.time_lstm = nn.LSTM(self.input_size, self.hidden_size, self.n_layers, dropout=0.1, 
                                  batch_first=True, )
         self.dropout = nn.Dropout(p=0.5, inplace=True)
+        self.generate_features = feature_generation()
         
     def forward(self, notes):
         
@@ -112,19 +136,7 @@ class time_axis(nn.Module):
         initial_shape = notes.shape
         
         # convolution
-        notes = notes.contiguous().view((-1,)+ notes.shape[-2:]).contiguous()
-        notes = notes.permute(0, 2, 1).contiguous()
-        notes = self.padding(notes)
-        notes = self.conv(notes)
-        notes = nn.Tanh()(notes)
-        notes = notes.permute(0, 2, 1).contiguous()
-        notes = notes.contiguous().view(initial_shape[:2] + notes.shape[-2:])
-        
-        pos_in = pitch_pos_in_f(notes)
-        class_in = pitch_class_in_f(notes)
-        bins = pitch_bins_f(notes)
-        
-        note_features = torch.cat([notes, pos_in, class_in, bins], dim = -1)
+        note_features =  self.generate_features(notes)
         notes = note_features
     
         initial_shape = notes.shape

@@ -113,6 +113,8 @@ def generate(models, num_bars, Attention = False, to_train=False):
     note_model.to_train = to_train
     if not to_train:
         note_model.apply_T = True
+    else: 
+        note_model.apply_T = False
     
     generations = [MusicGeneration()]
 
