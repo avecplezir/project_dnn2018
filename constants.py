@@ -19,8 +19,8 @@ styles = [
 cuda = True
 
 SELF_ATTENTION = True
-PROJECTION_DIM = 39
-N_HEADS = 2
+PROJECTION_DIM = 78
+N_HEADS = 3
 D_MODEL = 78
 
 #=============================

@@ -108,7 +108,7 @@ def sample_sound_np(data_gen):
 def generate(models, num_bars, Attention = False, to_train=False):
     print('Generating with no styles:')
 
-    models.train(False) 
+#     models.train(False) 
     time_model, note_model = models.time_ax, models.note_ax
     note_model.to_train = to_train
     if not to_train:
