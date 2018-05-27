@@ -224,9 +224,6 @@ class note_axis(nn.Module):
             out, hidden = self.note_lstm(note_input) 
             note_output = out.contiguous().view(initial_shape[:2] + out.shape[-2:])
             info = overall_info.expand((note_output.shape[1:3]+overall_info.shape)).permute(2,0,1,3).contiguous()
-#             print(info.shape)
-#             print('info', info[0,0,0,:])
-#             print('info2', info[0,5,3,:])
             note_output = torch.cat([note_output, info], dim =-1)
             logits = self.logits(note_output) 
             next_notes = nn.Sigmoid()(logits)      
@@ -238,13 +235,16 @@ class note_axis(nn.Module):
             notes_list = []
             sound_list = []
             sound = torch.zeros(note_input[:,0:1,:].shape[:-1]+(NOTE_UNITS,)).cuda()
+
             for i in range(NUM_OCTAVES*OCTAVE):
-#                 print('sound', sound.shape)
-#                 print('note_input[:,i:i+1,:]', note_input[:,i:i+1,:].shape)
+                
                 inputs = torch.cat([note_input[:,i:i+1,:], sound], dim = -1)
-#                 print('inputs', inputs.shape)
                 out, hidden = self.note_lstm(inputs, hidden) 
-                logits = self.logits(out) 
+                
+                info = overall_info.expand(((1,)+overall_info.shape)).permute(1,0,2).contiguous()
+                note_output = torch.cat([out, info], dim =-1)
+                
+                logits = self.logits(note_output) 
                 if self.apply_T:
                     next_notes = nn.Sigmoid()(logits/self.temperature)
                 else:
