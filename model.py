@@ -248,29 +248,31 @@ class note_axis(nn.Module):
                 notes_list.append(next_notes)
                 sound_list.append(sound)
                 
-#                 if self.apply_T:             
-#                     if  ((sounds[-1,-1,:,0] != 0).sum() == 0):
-#                         self.silent_time += 1
-#                         if self.silent_time >= NOTES_PER_BAR:
-#                             self.temperature += 0.1
-#                     else:
-#                         self.silent_time = 0
-#                         self.temperature = 1
+                if self.apply_T:  
+                    sounds = torch.cat(sound_list, dim = 1)
+#                     print('sounds', sounds.shape)
+                    if  ((sounds[-1,:,0] != 0).sum() == 0):
+                        self.silent_time += 1
+                        if self.silent_time >= NOTES_PER_BAR:
+                            self.temperature += 0.1
+                    else:
+                        self.silent_time = 0
+                        self.temperature = 1
                 
             out = torch.cat(notes_list, dim = 1)
             sounds = torch.cat(sound_list, dim = 1)
             note_output = out.contiguous().view(initial_shape[:2] + out.shape[-2:])
             sounds = sounds.contiguous().view(initial_shape[:2] + out.shape[-2:])
             
-            if self.apply_T:
+#             if self.apply_T:
                 
-                if  ((sounds[-1,-1,:,0] != 0).sum() == 0):
-                    self.silent_time += 1
-                    if self.silent_time >= NOTES_PER_BAR:
-                        self.temperature += 0.1*10
-                else:
-                    self.silent_time = 0
-                    self.temperature = 1
+#                 if  ((sounds[-1,-1,:,0] != 0).sum() == 0):
+#                     self.silent_time += 1
+#                     if self.silent_time >= NOTES_PER_BAR:
+#                         self.temperature += 0.1*10
+#                 else:
+#                     self.silent_time = 0
+#                     self.temperature = 1
             
             return note_output, sounds
     

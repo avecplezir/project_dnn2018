@@ -149,10 +149,12 @@ def generate(models, num_bars, Attention = False, to_train=False):
                     # Remove the temporal dimension
                     g.choose(predictions[i][-1], n)
         else:           
-            predictions, _ = note_model(note_features, None)
+            predictions, sample = note_model(note_features, None)
+#             print(sample.shape)
             proba = predictions.cpu().data.numpy()[0][0]
-#             proba = apply_temperature(proba, g.temperature)
+            proba = apply_temperature(proba, g.temperature)
             sample = sample_sound_np(proba)
+#             sample = sample.cpu().data.numpy()[0][0]
             g.add_notes(sample)
             
         # Move one time step
