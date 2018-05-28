@@ -120,7 +120,7 @@ class time_axis(nn.Module):
 
         self.time_lstm = nn.LSTM(self.input_size, self.hidden_size, self.n_layers, dropout=0.1, 
                                  batch_first=True, )
-        self.dropout = nn.Dropout(p=0.5, inplace=True)
+        self.dropout = nn.Dropout(p=0.2)
         self.generate_features = feature_generation()
         
     def forward(self, notes):
@@ -134,10 +134,14 @@ class time_axis(nn.Module):
             
         """
         
+        notes = self.dropout(notes)
+        
         initial_shape = notes.shape
         
         # convolution
         note_features =  self.generate_features(notes)
+#         self.dropout(note_features)
+        
         notes = note_features
     
         initial_shape = notes.shape
@@ -169,14 +173,14 @@ def sample_sound2(data_gen):
     size = data_gen.size()
     rand = torch.rand(*size).cuda()
     sample = (rand<data_gen).type(torch.FloatTensor).cuda()
-    sample[:,:,2] = 1
+    sample[:,:,2] = sample[:,:,0]
     return sample
 
 def sample_sound(data_gen):
     size = data_gen.size()
     rand = torch.rand(*size).cuda()
     sample = (rand<data_gen).type(torch.FloatTensor).cuda()
-    sample[:,:,:,2] = 1
+    sample[:,:,:,2] = sample[:,:,:,0]
     return sample
 
 class note_axis(nn.Module):
@@ -192,7 +196,7 @@ class note_axis(nn.Module):
         self.note_lstm = nn.LSTM(self.input_size, self.hidden_size, self.n_layers, dropout=0.1, 
                                  batch_first=True, )
         
-        self.dropout = nn.Dropout(p=0.2, inplace=True)
+        self.dropout = nn.Dropout(p=0.2)
         
         self.logits = nn.Linear(self.hidden_size+NUM_TRACK_FEATURE, NOTE_UNITS) 
         self.to_train = True
@@ -213,6 +217,7 @@ class note_axis(nn.Module):
     
         if self.to_train:
             # Shift target one note to the left.
+            chosen = self.dropout(chosen)
             shift_chosen = nn.ZeroPad2d((0, 0, 1, 0))(chosen[:, :, :-1, :]) 
             notes = torch.cat([notes, shift_chosen], dim=-1)
 
@@ -418,8 +423,8 @@ class track_feature(nn.Module):
     def __init__(self, dropout=0.3):
         super(self.__class__, self).__init__()        
         
-        self.overall_information = nn.Conv2d(3, 10, (32, 48), padding=0, stride=16)
-        self.l = nn.Linear(10*7, NUM_TRACK_FEATURE)
+        self.overall_information = nn.Conv2d(3, OUT_CHANEL_TRACK, (32, 48), padding=0, stride=16)
+        self.l = nn.Linear(OUT_CHANEL_TRACK*7, NUM_TRACK_FEATURE)
         
     def forward(self, notes):
               
@@ -431,23 +436,15 @@ class track_feature(nn.Module):
         return overall_info     
     
 class Generator(nn.Module):
-    def __init__(self, dropout=0.3):
+    def __init__(self):
         super(self.__class__, self).__init__()        
         
-        self.dropout = nn.Dropout(p=dropout)
         self.time_ax = time_axis() 
         self.note_ax = note_axis()
         #in_ch, out_ch, kernel
         self.overall_information = track_feature()
         
     def forward(self, notes, chosen = None):
-        
-#         notes[:,:,:,2] = notes[:,:,:,0]
-        notes = self.dropout(notes)
-        
-        if self.note_ax.to_train == True:
-#             chosen[:,:,:,2] = chosen[:,:,:,0]
-            chosen = self.dropout(chosen)
 
         overall_info = self.overall_information(notes)
                                                               

@@ -55,7 +55,7 @@ class MusicGeneration:
         if np.random.random() <= prob[0]:
             self.next_note[n, 0] = 1
             # Apply volume
-            self.next_note[n, 2] = 1 #vol
+            self.next_note[n, 2] = 1 #vol #1 #vol
             # Flip articulation
             if np.random.random() <= prob[1]:
                 self.next_note[n, 1] = 1
@@ -153,10 +153,10 @@ def generate(models, num_bars, Attention = False, to_train=False):
         else:           
             predictions, sample = note_model(note_features, None, track_features)
 #             print(sample.shape)
-            proba = predictions.cpu().data.numpy()[0][0]
-            proba = apply_temperature(proba, g.temperature)
-            sample = sample_sound_np(proba)
-#             sample = sample.cpu().data.numpy()[0][0]
+#             proba = predictions.cpu().data.numpy()[0][0]
+#             proba = apply_temperature(proba, g.temperature)
+#             sample = sample_sound_np(proba)
+            sample = sample.cpu().data.numpy()[0][0]
             g.add_notes(sample)
             
         # Move one time step
