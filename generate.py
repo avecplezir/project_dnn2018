@@ -34,7 +34,7 @@ class MusicGeneration:
     def build_time_inputs(self):
         return (
             np.array(self.notes_memory),
-#             np.array(self.beat_memory),
+            np.array(self.beat_memory),
         )
 
     def build_note_inputs(self, note_features):
@@ -111,25 +111,32 @@ def generate(models, num_bars, Attention = False, to_train=False):
 #     models.train(False) 
     time_model, note_model, track_feature_model = models.time_ax, models.note_ax, models.overall_information
     note_model.to_train = to_train
+    time_ax.generate_features.use_beat=True
     if not to_train:
         note_model.apply_T = True
     else: 
         note_model.apply_T = False
+        
     
     generations = [MusicGeneration()]
 
     for t in tqdm(range(NOTES_PER_BAR * num_bars)):
         # Produce note-invariant features
-        ins = process_inputs([g.build_time_inputs() for g in generations])[0]
+        ins, beat = process_inputs([g.build_time_inputs() for g in generations])
         g = generations[0]
+        
+#         print(ins.shape)
+#         print(beat)
         
         if cuda:      
             ins = Variable(torch.FloatTensor(ins)).cuda()
+            beat = Variable(torch.FloatTensor(beat)).cuda()
         else:
             ins = Variable(torch.FloatTensor(ins))
+            beat = Variable(torch.FloatTensor(beat))
             
         # Pick only the last time step
-        note_features = time_model(ins)
+        note_features = time_model(ins, beat)
         note_features = note_features[:, -1:, :]
         
         track_features = track_feature_model(ins)

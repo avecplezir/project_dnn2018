@@ -74,6 +74,22 @@ def pitch_bins_f(x):
         
         return bins
     
+def beat_f(x):
+
+#     print('x', x.shape)
+    beats = torch.FloatTensor(np.array([one_hot(b % NOTES_PER_BAR, NOTES_PER_BAR) for b in range(x.shape[1])]))
+#     print('beats', beats.shape)
+#     beats = beats.view((1, 1, x.shape[1], NOTES_PER_BAR))
+    beats = beats.repeat(((x.shape[0], x.shape[2])+ (1, 1)))
+#     print('beats', beats.shape)
+    beats = beats.permute(0,2,1,3).contiguous()
+#     print('beats', beats.shape)
+#     print('beats', beats[0,1,3,:])
+#     print('beats', beats[1,2,21,:])
+
+    return get_variable(beats)
+    
+    
 class feature_generation(nn.Module):
     def __init__(self):
         super(self.__class__, self).__init__()        
@@ -94,9 +110,8 @@ class feature_generation(nn.Module):
         
         pos_in = pitch_pos_in_f(notes)
         class_in = pitch_class_in_f(notes)
-        bins = pitch_bins_f(notes)
-        
-        note_features = torch.cat([notes, pos_in, class_in, bins], dim = -1)
+        bins = pitch_bins_f(notes)        
+        note_features = torch.cat([notes, pos_in, class_in, bins], dim = -1) 
     
         return note_features
 
@@ -117,13 +132,18 @@ class time_axis(nn.Module):
         self.self_attention = SELF_ATTENTION
 
         self.input_size = D_MODEL 
+        self.use_beat = True
+        
+        if self.use_beat:       
+            self.input_size += BEATS_FEATURES
 
         self.time_lstm = nn.LSTM(self.input_size, self.hidden_size, self.n_layers, dropout=0.1, 
                                  batch_first=True, )
         self.dropout = nn.Dropout(p=0.2)
         self.generate_features = feature_generation()
         
-    def forward(self, notes):
+        
+    def forward(self, notes, beats = None):
         
         """
         arg:
@@ -139,9 +159,7 @@ class time_axis(nn.Module):
         initial_shape = notes.shape
         
         # convolution
-        note_features =  self.generate_features(notes)
-#         self.dropout(note_features)
-        
+        note_features =  self.generate_features(notes)   
         notes = note_features
     
         initial_shape = notes.shape
@@ -155,6 +173,14 @@ class time_axis(nn.Module):
             # FF
             note_features = self.FF(notes)
             notes = notes + note_features
+            
+        if self.use_beat:
+            if beats is None:
+                beats = beat_f(notes)
+            else:
+                beats = beats.repeat((notes.shape[2], 1,1,1)).permute(1,2,0,3).contiguous()
+
+            notes = torch.cat([notes, beats], dim = -1)
 
         
         initial_shape = notes.shape
@@ -429,9 +455,10 @@ class track_feature(nn.Module):
     def forward(self, notes):
               
         overall_info = notes.permute(0, 3, 1, 2).contiguous()
-        overall_info = self.overall_information(overall_info)
+        overall_info = self.overall_information(overall_info) #F.relu(
 #         print('overall_info', overall_info.shape)
-        overall_info = self.l(overall_info.view((overall_info.shape[0],-1)))
+# F.relu( nn.LeakyReLU(negative_slope=0.1)
+        overall_info = nn.LeakyReLU(negative_slope=0.1)(self.l(overall_info.view((overall_info.shape[0],-1))))
         
         return overall_info     
     
@@ -444,18 +471,18 @@ class Generator(nn.Module):
         #in_ch, out_ch, kernel
         self.overall_information = track_feature()
         
-    def forward(self, notes, chosen = None):
+    def forward(self, notes, chosen = None, beat = None):
 
         overall_info = self.overall_information(notes)
                                                               
-        note_ax_output = self.time_ax(notes)
+        note_ax_output = self.time_ax(notes, beat)
         output = self.note_ax(note_ax_output, chosen, overall_info)
                                                               
         
         return output 
     
 
-def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
+def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3, verbose = True):
     
     optimizer = optim.Adam(generator.parameters())
     n_train_batches = math.ceil(len(X_tr)/batchsize)
@@ -469,48 +496,54 @@ def train(generator, X_tr, X_te, y_tr, y_te, batchsize=3, n_epochs = 3):
 
         train_loss = 0
         generator.train(True)    
-        for X, y in tqdm(iterate_minibatches(X_tr, y_tr, batchsize)):
+                    
+        try:
+            for X, y in tqdm(iterate_minibatches(X_tr, y_tr, batchsize)):
 
-            pred, sound = generator(X, y)
-            loss = compute_loss(pred, y) 
+                pred, sound = generator(X, y)
+                loss = compute_loss(pred, y) 
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                train_loss += loss.cpu().data.numpy()
+
+            train_loss /= n_train_batches
+            epoch_history['train_loss'].append(train_loss)
+
+            generator.train(False)
+            val_loss = 0
+            for X, y in tqdm(iterate_minibatches(X_te, y_te, batchsize)):
+                pred, sound = generator(X, y)
+                loss = compute_loss(pred, y) 
+
+                val_loss += loss.cpu().data.numpy()
+
+            val_loss /= n_validation_batches
+            epoch_history['val_loss'].append(val_loss)
+        
+        except KeyboardInterrupt:
+            return generator, epoch, epoch_history  
             
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            
-            train_loss += loss.cpu().data.numpy()
-
-        train_loss /= n_train_batches
-        epoch_history['train_loss'].append(train_loss)
-
-        generator.train(False)
-        val_loss = 0
-        for X, y in tqdm(iterate_minibatches(X_te, y_te, batchsize)):
-            pred, sound = generator(X, y)
-            loss = compute_loss(pred, y) 
-
-            val_loss += loss.cpu().data.numpy()
-
-        val_loss /= n_validation_batches
-        epoch_history['val_loss'].append(val_loss)
-
         # Visualize
-        display.clear_output(wait=True)
-        plt.figure(figsize=(16, 6))
-        # Then we print the results for this epoch:
-        print("Epoch {} of {} took {:.3f}s".format(
-            epoch + 1, n_epochs, time.time() - start_time)) 
-        print('current train loss: {}'.format(epoch_history['train_loss'][-1]))
-        print('current val loss: {}'.format(epoch_history['val_loss'][-1]))
+        if verbose:
+            display.clear_output(wait=True)
+            plt.figure(figsize=(16, 6))
+            # Then we print the results for this epoch:
+            print("Epoch {} of {} took {:.3f}s".format(
+                epoch + 1, n_epochs, time.time() - start_time)) 
+            print('current train loss: {}'.format(epoch_history['train_loss'][-1]))
+            print('current val loss: {}'.format(epoch_history['val_loss'][-1]))
 
-        plt.title("losses")
-        plt.xlabel("#epoch")
-        plt.ylabel("loss")
-        plt.plot(epoch_history['train_loss'], 'b', label = 'train_loss')
-        plt.plot(epoch_history['val_loss'], 'g', label = 'val_loss')
-        plt.legend()
-        plt.show()
+            plt.title("losses")
+            plt.xlabel("#epoch")
+            plt.ylabel("loss")
+            plt.plot(epoch_history['train_loss'], 'b', label = 'train_loss')
+            plt.plot(epoch_history['val_loss'], 'g', label = 'val_loss')
+            plt.legend()
+            plt.show()
 
     print("Finished!")
     
-    return generator, epoch_history
+    return generator, epoch, epoch_history
