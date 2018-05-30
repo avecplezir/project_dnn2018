@@ -111,7 +111,7 @@ def generate(models, num_bars, Attention = False, to_train=False):
 #     models.train(False) 
     time_model, note_model, track_feature_model = models.time_ax, models.note_ax, models.overall_information
     note_model.to_train = to_train
-    time_ax.generate_features.use_beat=True
+    time_model.generate_features.use_beat=True
     if not to_train:
         note_model.apply_T = True
     else: 
