@@ -19,7 +19,8 @@ class MusicGeneration:
     """
     def __init__(self, default_temp=1):
         self.notes_memory = deque([np.zeros((NUM_NOTES, NOTE_UNITS)) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
-        self.beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
+#         self.beat_memory = deque([np.zeros(NOTES_PER_BAR) for _ in range(SEQ_LEN)], maxlen=SEQ_LEN)
+        self.beat_memory = deque(np.zeros(SEQ_LEN), maxlen=SEQ_LEN)
         
         # The next note being built
         self.next_note = np.zeros((NUM_NOTES, NOTE_UNITS))
@@ -35,6 +36,7 @@ class MusicGeneration:
         return (
             np.array(self.notes_memory),
             np.array(self.beat_memory),
+
         )
 
     def build_note_inputs(self, note_features):
@@ -75,7 +77,8 @@ class MusicGeneration:
 
         self.notes_memory.append(self.next_note)
         # Consistent with dataset representation
-        self.beat_memory.append(compute_beat(t, NOTES_PER_BAR))
+#         self.beat_memory.append(compute_beat(t, NOTES_PER_BAR))
+        self.beat_memory.append(t % NOTES_PER_BAR)
         self.results.append(self.next_note)
         # Reset next note
         self.next_note = np.zeros((NUM_NOTES, NOTE_UNITS))
@@ -119,21 +122,22 @@ def generate(models, num_bars, Attention = False, to_train=False):
         
     
     generations = [MusicGeneration()]
+    g = generations[0]
 
     for t in tqdm(range(NOTES_PER_BAR * num_bars)):
         # Produce note-invariant features
         ins, beat = process_inputs([g.build_time_inputs() for g in generations])
-        g = generations[0]
-        
-#         print(ins.shape)
-#         print(beat)
+        beat = beat[0]
         
         if cuda:      
             ins = Variable(torch.FloatTensor(ins)).cuda()
-            beat = Variable(torch.FloatTensor(beat)).cuda()
+#             beat = Variable(torch.FloatTensor(beat)).cuda()
+            beat = Variable(torch.LongTensor(beat)).cuda()
         else:
             ins = Variable(torch.FloatTensor(ins))
-            beat = Variable(torch.FloatTensor(beat))
+#             beat = Variable(torch.FloatTensor(beat))
+            beat = Variable(torch.LongTensor(beat))
+
             
         # Pick only the last time step
         note_features = time_model(ins, beat)
@@ -159,10 +163,6 @@ def generate(models, num_bars, Attention = False, to_train=False):
                     g.choose(predictions[i][-1], n)
         else:           
             predictions, sample = note_model(note_features, None, track_features)
-#             print(sample.shape)
-#             proba = predictions.cpu().data.numpy()[0][0]
-#             proba = apply_temperature(proba, g.temperature)
-#             sample = sample_sound_np(proba)
             sample = sample.cpu().data.numpy()[0][0]
             g.add_notes(sample)
             
@@ -176,7 +176,7 @@ def write_file(name, results):
     results = zip(*list(results))
 
     for i, result in enumerate(results):
-        fpath = os.path.join(SAMPLES_DIR, name + '_' + str(i) + '.mid')
+        fpath = os.path.join(name + '_' + str(i) + '.mid')
         print('Writing file', fpath)
         os.makedirs(os.path.dirname(fpath), exist_ok=True)
         mf = midi_encode(unclamp_midi(result))

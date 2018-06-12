@@ -18,10 +18,11 @@ styles = [
 #self attention - number of heads, projection dim
 cuda = True
 
-SELF_ATTENTION = True
-PROJECTION_DIM = 78 #94
+ATTENTION_NOTE_AXIS = True
+ATTENTION_TIME_AXIS = False
+PROJECTION_DIM = 97 #94
 N_HEADS = 3
-D_MODEL = 78 #94 #78
+D_MODEL = 97 #78 #94 #78
 BEATS_FEATURES = 16
 NUM_TRACK_FEATURE = 30
 OUT_CHANEL_TRACK = 20
@@ -66,8 +67,7 @@ TIME_AXIS_LAYERS = 2
 NOTE_AXIS_LAYERS = 2
 
 # Move file save location
-OUT_DIR = 'out'
+OUT_DIR = '/data/i.anokhin/music_out'
 MODEL_DIR = os.path.join(OUT_DIR, 'models')
-MODEL_FILE = os.path.join(OUT_DIR, 'model.h5')
 SAMPLES_DIR = os.path.join(OUT_DIR, 'samples')
 CACHE_DIR = os.path.join(OUT_DIR, 'cache')

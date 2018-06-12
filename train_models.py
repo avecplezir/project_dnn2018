@@ -2,6 +2,7 @@ import torch,torch.nn as nn
 import torch.nn.functional as F
 from constants import *
 from model import *
+from feature_generation_module import feature_generation
 
 
 class LstmDiscriminator(nn.Module):
@@ -38,7 +39,7 @@ class LstmDiscriminator(nn.Module):
         return probs
     
 class FeaturedLstmDiscriminator(nn.Module):
-    def __init__(self,hidden_size = 1000,last_dim = 78):
+    def __init__(self,hidden_size = 1000,last_dim = 2*D_MODEL):
         super(self.__class__, self).__init__()
         self.last_dim = last_dim
         self.hidden_size = hidden_size
@@ -56,6 +57,7 @@ class FeaturedLstmDiscriminator(nn.Module):
         data = torch.cat(features,dim = -1)
 
         *_,feature_num = data.size()
+#         print(self.last_dim, feature_num)
         assert feature_num == self.last_dim
         # data.size() =  (batch_size, SEQ_LEN, OCTAVE*NUM_OCTAVES, last_dim)
         # octave_data.size() =  (batch_size, SEQ_LEN, OCTAVE,NUM_OCTAVES*last_dim)
